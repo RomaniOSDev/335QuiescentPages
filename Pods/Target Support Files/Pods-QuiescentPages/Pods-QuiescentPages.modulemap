@@ -1,0 +1,6 @@
+framework module Pods_QuiescentPages {
+  umbrella header "Pods-QuiescentPages-umbrella.h"
+
+  export *
+  module * { export * }
+}
