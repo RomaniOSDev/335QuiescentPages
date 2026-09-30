@@ -4,12 +4,13 @@ import Foundation
 final class Store: ObservableObject {
     private enum Keys {
         static let quotes = "quotes"
+        static let books = "books"
         static let preferredLanguages = "preferredLanguages"
         static let lastTranslationDate = "lastTranslationDate"
-        static let translationHistory = "translationHistory"
         static let lastViewedTranslationID = "lastViewedTranslationID"
         static let lastAccessedDate = "lastAccessedDate"
         static let hasSeenLanguageSetup = "hasSeenLanguageSetup"
+        static let hasSeededCatalog = "hasSeededCatalog"
         static let missedWords = "missedWords"
         static let dailyQuoteID = "dailyQuoteID"
         static let dailyQuoteDay = "dailyQuoteDay"
@@ -17,9 +18,9 @@ final class Store: ObservableObject {
     }
 
     @Published var quotes: [Quote] = []
+    @Published var books: [Book] = []
     @Published var preferredLanguages: [String] = []
     @Published var lastTranslationDate: Date?
-    @Published var translationHistory: [Quote] = []
     @Published var lastViewedTranslationID: UUID?
     @Published var lastAccessedDate: Date?
     @Published var hasSeenLanguageSetup: Bool = false
@@ -30,6 +31,8 @@ final class Store: ObservableObject {
 
     init() {
         loadAll()
+        migrateBooksIfNeeded()
+        seedCatalogIfNeeded()
         markAccessed()
         refreshDailyQuoteIfNeeded()
     }
@@ -38,8 +41,8 @@ final class Store: ObservableObject {
         quotes.sorted { $0.createdAt > $1.createdAt }
     }
 
-    var sortedHistory: [Quote] {
-        translationHistory.sorted { $0.createdAt > $1.createdAt }
+    var sortedBooks: [Book] {
+        books.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     var sortedMissedWords: [MissedWord] {
@@ -55,8 +58,33 @@ final class Store: ObservableObject {
         !hasSeenLanguageSetup || preferredLanguages.isEmpty
     }
 
+    var dueQuotes: [Quote] {
+        let now = Date()
+        return quotes.filter { quote in
+            guard let due = quote.nextReviewAt else { return quote.reviewCount == 0 }
+            return due <= now
+        }
+        .sorted { lhs, rhs in
+            let l = lhs.nextReviewAt ?? .distantPast
+            let r = rhs.nextReviewAt ?? .distantPast
+            return l < r
+        }
+    }
+
     func quote(id: UUID) -> Quote? {
-        quotes.first { $0.id == id } ?? translationHistory.first { $0.id == id }
+        quotes.first { $0.id == id }
+    }
+
+    func book(id: UUID) -> Book? {
+        books.first { $0.id == id }
+    }
+
+    func book(titled title: String) -> Book? {
+        books.first { $0.title.caseInsensitiveCompare(title) == .orderedSame }
+    }
+
+    func quotes(forBookID id: UUID) -> [Quote] {
+        quotes.filter { $0.bookID == id }.sorted { $0.createdAt > $1.createdAt }
     }
 
     func quoteOfTheDay() -> Quote? {
@@ -81,16 +109,61 @@ final class Store: ObservableObject {
         }
     }
 
-    func upsert(_ quote: Quote) {
-        if let index = quotes.firstIndex(where: { $0.id == quote.id }) {
-            quotes[index] = quote
+    @discardableResult
+    func upsertBook(_ book: Book) -> Book {
+        if let index = books.firstIndex(where: { $0.id == book.id }) {
+            books[index] = book
+        } else if let existing = books.firstIndex(where: { $0.title.caseInsensitiveCompare(book.title) == .orderedSame }) {
+            var merged = books[existing]
+            if merged.author.isEmpty { merged.author = book.author }
+            if merged.notes.isEmpty { merged.notes = book.notes }
+            books[existing] = merged
+            persistAll()
+            return merged
         } else {
-            quotes.insert(quote, at: 0)
+            books.insert(book, at: 0)
         }
-        if let index = translationHistory.firstIndex(where: { $0.id == quote.id }) {
-            translationHistory[index] = quote
+        persistAll()
+        return book
+    }
+
+    func deleteBook(id: UUID) {
+        books.removeAll { $0.id == id }
+        for index in quotes.indices where quotes[index].bookID == id {
+            quotes[index].bookID = nil
+        }
+        persistAll()
+    }
+
+    func ensureBook(title: String, author: String) -> Book {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let existing = book(titled: trimmed) {
+            if existing.author.isEmpty, !author.isEmpty {
+                var updated = existing
+                updated.author = author
+                return upsertBook(updated)
+            }
+            return existing
+        }
+        let tone = abs(trimmed.hashValue) % 4
+        return upsertBook(Book(title: trimmed, author: author, shelfTone: tone))
+    }
+
+    func upsert(_ quote: Quote) {
+        var item = quote
+        let book = ensureBook(title: item.bookTitle, author: item.author)
+        item.bookID = book.id
+        item.bookTitle = book.title
+        if item.author.isEmpty {
+            item.author = book.author
+        }
+        if item.nextReviewAt == nil {
+            item.nextReviewAt = Date()
+        }
+        if let index = quotes.firstIndex(where: { $0.id == item.id }) {
+            quotes[index] = item
         } else {
-            translationHistory.insert(quote, at: 0)
+            quotes.insert(item, at: 0)
         }
         lastTranslationDate = Date()
         persistAll()
@@ -100,7 +173,6 @@ final class Store: ObservableObject {
     func delete(ids: [UUID]) {
         guard !ids.isEmpty else { return }
         quotes.removeAll { ids.contains($0.id) }
-        translationHistory.removeAll { ids.contains($0.id) }
         if let viewed = lastViewedTranslationID, ids.contains(viewed) {
             lastViewedTranslationID = nil
         }
@@ -115,9 +187,6 @@ final class Store: ObservableObject {
     func toggleFavorite(_ id: UUID) {
         guard let index = quotes.firstIndex(where: { $0.id == id }) else { return }
         quotes[index].isFavorite.toggle()
-        if let historyIndex = translationHistory.firstIndex(where: { $0.id == id }) {
-            translationHistory[historyIndex].isFavorite = quotes[index].isFavorite
-        }
         persistAll()
     }
 
@@ -147,7 +216,7 @@ final class Store: ObservableObject {
         persistAll()
     }
 
-    func recordUnknownWords(_ words: [String], language: String) {
+    func recordUnknownWords(_ words: [String], language: String, exampleQuoteID: UUID? = nil) {
         let trimmed = words
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -160,9 +229,19 @@ final class Store: ObservableObject {
                 missedWords[index].count += 1
                 missedWords[index].lastSeenAt = now
                 missedWords[index].word = word
+                if missedWords[index].exampleQuoteID == nil {
+                    missedWords[index].exampleQuoteID = exampleQuoteID
+                }
             } else {
                 missedWords.append(
-                    MissedWord(id: UUID(), word: word, language: language, lastSeenAt: now, count: 1)
+                    MissedWord(
+                        id: UUID(),
+                        word: word,
+                        language: language,
+                        lastSeenAt: now,
+                        count: 1,
+                        exampleQuoteID: exampleQuoteID
+                    )
                 )
             }
         }
@@ -174,15 +253,42 @@ final class Store: ObservableObject {
         persistAll()
     }
 
+    func applyReview(quoteID: UUID, grade: ReviewGrade) {
+        guard let index = quotes.firstIndex(where: { $0.id == quoteID }) else { return }
+        var item = quotes[index]
+        var ease = max(1.3, item.easeFactor)
+        var interval = max(item.intervalDays, 0)
+
+        switch grade {
+        case .again:
+            interval = 0
+            ease = max(1.3, ease - 0.2)
+            item.nextReviewAt = Date().addingTimeInterval(10 * 60)
+        case .hard:
+            interval = max(1, interval * 1.2)
+            ease = max(1.3, ease - 0.05)
+            item.nextReviewAt = Date().addingTimeInterval(interval * 86_400)
+        case .good:
+            interval = interval < 1 ? 1 : interval * ease
+            item.nextReviewAt = Date().addingTimeInterval(interval * 86_400)
+        case .easy:
+            interval = interval < 1 ? 2 : interval * ease * 1.3
+            ease += 0.05
+            item.nextReviewAt = Date().addingTimeInterval(interval * 86_400)
+        }
+
+        item.intervalDays = interval
+        item.easeFactor = ease
+        item.reviewCount += 1
+        quotes[index] = item
+        persistAll()
+    }
+
     func languageCounts() -> [(TargetLanguage, Int)] {
         TargetLanguage.allCases.compactMap { language in
             let count = quotes.filter { $0.language == language.rawValue }.count
             return count > 0 ? (language, count) : nil
         }
-    }
-
-    func lastSevenDays() -> [DayInsight] {
-        dayInsights(lastDays: 7)
     }
 
     func dayInsights(lastDays days: Int) -> [DayInsight] {
@@ -238,6 +344,15 @@ final class Store: ObservableObject {
         return quotes.filter { $0.createdAt >= start }.count
     }
 
+    func glossaryExamples(for word: MissedWord) -> [Quote] {
+        if let id = word.exampleQuoteID, let quote = quote(id: id) {
+            return [quote]
+        }
+        return quotes.filter {
+            $0.language == word.language && $0.text.localizedCaseInsensitiveContains(word.word)
+        }.prefix(3).map { $0 }
+    }
+
     func refreshDailyQuoteIfNeeded() {
         guard !quotes.isEmpty else {
             if dailyQuoteID != nil || dailyQuoteDay != nil {
@@ -265,9 +380,9 @@ final class Store: ObservableObject {
 
     func resetAllData() {
         quotes = []
+        books = []
         preferredLanguages = []
         lastTranslationDate = nil
-        translationHistory = []
         lastViewedTranslationID = nil
         lastAccessedDate = nil
         hasSeenLanguageSetup = false
@@ -278,26 +393,80 @@ final class Store: ObservableObject {
         ReminderScheduler.apply(enabled: false)
 
         let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: Keys.quotes)
-        defaults.removeObject(forKey: Keys.preferredLanguages)
-        defaults.removeObject(forKey: Keys.lastTranslationDate)
-        defaults.removeObject(forKey: Keys.translationHistory)
-        defaults.removeObject(forKey: Keys.lastViewedTranslationID)
-        defaults.removeObject(forKey: Keys.lastAccessedDate)
-        defaults.removeObject(forKey: Keys.hasSeenLanguageSetup)
-        defaults.removeObject(forKey: Keys.missedWords)
-        defaults.removeObject(forKey: Keys.dailyQuoteID)
-        defaults.removeObject(forKey: Keys.dailyQuoteDay)
-        defaults.removeObject(forKey: Keys.remindersEnabled)
+        [
+            Keys.quotes, Keys.books, Keys.preferredLanguages, Keys.lastTranslationDate,
+            Keys.lastViewedTranslationID, Keys.lastAccessedDate, Keys.hasSeenLanguageSetup,
+            Keys.hasSeededCatalog, Keys.missedWords, Keys.dailyQuoteID, Keys.dailyQuoteDay,
+            Keys.remindersEnabled
+        ].forEach { defaults.removeObject(forKey: $0) }
 
+        seedCatalogIfNeeded(force: true)
         NotificationCenter.default.post(name: Notification.Name("dataReset"), object: nil)
+    }
+
+    private func seedCatalogIfNeeded(force: Bool = false) {
+        let already = UserDefaults.standard.bool(forKey: Keys.hasSeededCatalog)
+        guard force || !already else { return }
+
+        var bookMap: [String: Book] = [:]
+        for item in SeedCatalog.books {
+            let book = Book(
+                title: item.title,
+                author: item.author,
+                notes: item.notes,
+                shelfTone: item.tone
+            )
+            bookMap[item.title] = upsertBook(book)
+        }
+
+        for seed in SeedCatalog.quotes {
+            let book = bookMap[seed.bookTitle] ?? ensureBook(title: seed.bookTitle, author: seed.author)
+            let quote = Quote(
+                text: seed.text,
+                translatedText: seed.translatedText,
+                language: seed.language,
+                bookTitle: book.title,
+                bookID: book.id,
+                createdAt: Date().addingTimeInterval(-Double.random(in: 86_400...604_800)),
+                author: seed.author,
+                page: seed.page,
+                notes: seed.notes,
+                nextReviewAt: Date(),
+                isSeed: true
+            )
+            if quotes.contains(where: { $0.text == quote.text && $0.language == quote.language }) == false {
+                quotes.append(quote)
+            }
+        }
+
+        UserDefaults.standard.set(true, forKey: Keys.hasSeededCatalog)
+        persistAll()
+        refreshDailyQuoteIfNeeded()
+    }
+
+    private func migrateBooksIfNeeded() {
+        if books.isEmpty && !quotes.isEmpty {
+            for quote in quotes {
+                _ = ensureBook(title: quote.bookTitle, author: quote.author)
+            }
+        }
+        for index in quotes.indices {
+            if quotes[index].bookID == nil {
+                let book = ensureBook(title: quotes[index].bookTitle, author: quotes[index].author)
+                quotes[index].bookID = book.id
+            }
+            if quotes[index].nextReviewAt == nil {
+                quotes[index].nextReviewAt = quotes[index].createdAt
+            }
+        }
+        persistAll()
     }
 
     private func persistAll() {
         persistValue(quotes, key: Keys.quotes)
+        persistValue(books, key: Keys.books)
         persistValue(preferredLanguages, key: Keys.preferredLanguages)
         persistValue(lastTranslationDate, key: Keys.lastTranslationDate)
-        persistValue(translationHistory, key: Keys.translationHistory)
         persistValue(lastViewedTranslationID, key: Keys.lastViewedTranslationID)
         persistValue(lastAccessedDate, key: Keys.lastAccessedDate)
         persistValue(hasSeenLanguageSetup, key: Keys.hasSeenLanguageSetup)
@@ -319,9 +488,9 @@ final class Store: ObservableObject {
 
     private func loadAll() {
         quotes = loadValue([Quote].self, key: Keys.quotes) ?? []
+        books = loadValue([Book].self, key: Keys.books) ?? []
         preferredLanguages = loadValue([String].self, key: Keys.preferredLanguages) ?? []
         lastTranslationDate = loadValue(Date?.self, key: Keys.lastTranslationDate) ?? nil
-        translationHistory = loadValue([Quote].self, key: Keys.translationHistory) ?? quotes
         lastViewedTranslationID = loadValue(UUID?.self, key: Keys.lastViewedTranslationID) ?? nil
         lastAccessedDate = loadValue(Date?.self, key: Keys.lastAccessedDate) ?? nil
         hasSeenLanguageSetup = loadValue(Bool.self, key: Keys.hasSeenLanguageSetup) ?? false
@@ -329,8 +498,5 @@ final class Store: ObservableObject {
         dailyQuoteID = loadValue(UUID?.self, key: Keys.dailyQuoteID) ?? nil
         dailyQuoteDay = loadValue(Date?.self, key: Keys.dailyQuoteDay) ?? nil
         remindersEnabled = loadValue(Bool.self, key: Keys.remindersEnabled) ?? false
-        if translationHistory.isEmpty && !quotes.isEmpty {
-            translationHistory = quotes
-        }
     }
 }

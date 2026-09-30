@@ -9,9 +9,11 @@
 /* Begin PBXBuildFile section */
 		09D9F21A6154ACEB7F471F81 /* Translator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF90A3AA2A5285DD29033F80 /* Translator.swift */; };
 		0C5E9F2A26C711873265A47A /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB4F09B668ACA2B8FEE20DFC /* SceneDelegate.swift */; };
+		1A8C0E4B92D14F6A8B3C2E71 /* SeedCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7D91E04F6A8C3D9E1A55B0 /* SeedCatalog.swift */; };
 		27D7D27A418A695AB023DF56 /* LogWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A2EAB7F7CE31E7CD3BFB2EF /* LogWorkspace.swift */; };
 		30CB9F2DE9043E2AC6FD0709 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 24B3BFCB6A37EB71F0E54DC6 /* Main.storyboard */; };
 		3F17F140D915E45E41343494 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C72AFA315DAEB029194FDC /* Models.swift */; };
+		4E9A12C83B7F4D019A2E66C4 /* PageOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F3C71A05D2E4B8891C6D0E2 /* PageOCRService.swift */; };
 		58158637ADC3CF0495FF7FD0 /* QuoteWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18019AA300C3C8A9E7CC1E34 /* QuoteWorkspace.swift */; };
 		5D9F32B0A7C15823B4E26F01 /* ReviewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8E21A9F6B04712A3D15E90 /* ReviewWorkspace.swift */; };
 		6562CE5CF2C6B01B0B988B0D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791C4BFF1B4BB2DBCE958011 /* AppDelegate.swift */; };
@@ -31,6 +33,7 @@
 		09C72AFA315DAEB029194FDC /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		18019AA300C3C8A9E7CC1E34 /* QuoteWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteWorkspace.swift; sourceTree = "<group>"; };
 		24B3BFCB6A37EB71F0E54DC6 /* Main.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = Main.storyboard; sourceTree = "<group>"; };
+		2B7D91E04F6A8C3D9E1A55B0 /* SeedCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedCatalog.swift; sourceTree = "<group>"; };
 		3369498B672A57501AF33506 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		33C1665D27B1DCC46F00A75F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		3B4200F13831714CDB6E7056 /* Pods_QuiescentPages.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_QuiescentPages.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -43,6 +46,7 @@
 		6E0A43C1B8D26934C5F37012 /* ReminderScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderScheduler.swift; sourceTree = "<group>"; };
 		791C4BFF1B4BB2DBCE958011 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		8B429A0E9DB173A884805FED /* Pods-QuiescentPages.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-QuiescentPages.debug.xcconfig"; path = "Target Support Files/Pods-QuiescentPages/Pods-QuiescentPages.debug.xcconfig"; sourceTree = "<group>"; };
+		8F3C71A05D2E4B8891C6D0E2 /* PageOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageOCRService.swift; sourceTree = "<group>"; };
 		AB31A6D5217066E14EE81FD4 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		AB326F02C77B198EE25EDEA2 /* QuiescentPages.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = QuiescentPages.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AE7A3E8325DF4C0D20280EEB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -82,6 +86,8 @@
 			children = (
 				CF90A3AA2A5285DD29033F80 /* Translator.swift */,
 				6E0A43C1B8D26934C5F37012 /* ReminderScheduler.swift */,
+				2B7D91E04F6A8C3D9E1A55B0 /* SeedCatalog.swift */,
+				8F3C71A05D2E4B8891C6D0E2 /* PageOCRService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -293,6 +299,8 @@
 				A33B2DA261870FAF81789517 /* AppLinks.swift in Sources */,
 				735F90A2BD52C315C4CC48B1 /* Store.swift in Sources */,
 				09D9F21A6154ACEB7F471F81 /* Translator.swift in Sources */,
+				1A8C0E4B92D14F6A8B3C2E71 /* SeedCatalog.swift in Sources */,
+				4E9A12C83B7F4D019A2E66C4 /* PageOCRService.swift in Sources */,
 				7F1B54D2C9E37A45D6048123 /* ReminderScheduler.swift in Sources */,
 				E489CC6F2B92006DCA5967BC /* Theme.swift in Sources */,
 				A5C0671D33800F7CD9F22044 /* ContentView.swift in Sources */,
@@ -372,14 +380,17 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = QuiescentPages/App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Quiescent Pages";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Quiescent Pages uses the camera to scan book pages and pull quotes with on-device OCR.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Quiescent Pages reads photos you choose so it can recognize text from a book page.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.glo.q713sc3ntp9g4s;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -403,14 +414,17 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = QuiescentPages/App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Quiescent Pages";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Quiescent Pages uses the camera to scan book pages and pull quotes with on-device OCR.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Quiescent Pages reads photos you choose so it can recognize text from a book page.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.glo.q713sc3ntp9g4s;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

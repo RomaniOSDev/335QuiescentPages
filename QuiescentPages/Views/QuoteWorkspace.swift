@@ -3,80 +3,111 @@ import UIKit
 
 enum QuoteDraft: Identifiable, Equatable {
     case create
+    case createForBook(UUID)
+    case createFromScan(String)
     case edit(UUID)
 
     var id: String {
         switch self {
         case .create: return "create"
+        case .createForBook(let bookID): return "book-\(bookID.uuidString)"
+        case .createFromScan(let text): return "scan-\(text.hashValue)"
         case .edit(let quoteID): return quoteID.uuidString
         }
     }
 }
 
-struct QuoteWorkspace: View {
+struct DeskWorkspace: View {
     @EnvironmentObject private var store: Store
     @State private var path = NavigationPath()
-    @State private var editMode: EditMode = .inactive
     @State private var draft: QuoteDraft?
-    @State private var pendingDeleteIDs: [UUID] = []
-    @State private var showDeleteConfirm = false
+    @State private var showCapture = false
     @State private var query = ""
     @State private var favoritesOnly = false
     @State private var languageFilter: String?
-    @State private var bookFilter: String?
     @State private var sort: QuoteSort = .newest
+    @State private var pendingDeleteIDs: [UUID] = []
+    @State private var showDeleteConfirm = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            NavigationStack(path: $path) {
-                VStack(alignment: .leading, spacing: 12) {
-                    header
-                    LibraryBanner(imageName: LibraryDestination.quotes.bannerName)
-                    ParchmentStage(fillsAvailable: true) {
-                        quoteList
+        NavigationStack(path: $path) {
+            ZStack(alignment: .bottomTrailing) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        header
+                        captureCard
+                        filterBar
+                        quoteBlocks
                     }
-                    .padding(.bottom, 4)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(DisableNavBarHits())
-                .navigationDestination(for: UUID.self) { quoteID in
-                    QuoteDetailView(quoteID: quoteID, onEdit: { draft = .edit(quoteID) })
-                }
-                .toolbar(.hidden, for: .navigationBar)
-            }
-            if path.isEmpty {
-                NewQuoteButton { draft = .create }
+                    .padding(.horizontal, 16)
                     .padding(.top, 12)
-                    .padding(.trailing, 16)
+                    .padding(.bottom, 88)
+                }
+                .clearScrollBackground()
+
+                Menu {
+                    Button {
+                        draft = .create
+                    } label: {
+                        Label("Type Quote", systemImage: "pencil")
+                    }
+                    Button {
+                        showCapture = true
+                    } label: {
+                        Label("Scan Page", systemImage: "doc.text.viewfinder")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 54, height: 54)
+                        .background {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color("AppPrimary"), Color("AppAccent")],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                                .shadow(color: Color("AppPrimary").opacity(0.35), radius: 8, y: 3)
+                        }
+                }
+                .padding(.trailing, 18)
+                .padding(.bottom, 18)
             }
+            .background(DisableNavBarHits())
+            .navigationDestination(for: UUID.self) { quoteID in
+                QuoteDetailView(quoteID: quoteID, onEdit: { draft = .edit(quoteID) })
+            }
+            .toolbar(.hidden, for: .navigationBar)
         }
-        .environment(\.editMode, $editMode)
         .sheet(item: $draft) { item in
             QuoteEditorView(draft: item)
                 .environmentObject(store)
+        }
+        .sheet(isPresented: $showCapture) {
+            PageCaptureView { text in
+                draft = .createFromScan(text)
+            }
         }
         .alert("Delete Quote?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 store.delete(ids: pendingDeleteIDs)
                 pendingDeleteIDs = []
-                editMode = .inactive
             }
             Button("Cancel", role: .cancel) {
                 pendingDeleteIDs = []
             }
         } message: {
-            Text("This quote will be removed from your collection and history.")
+            Text("This quote will leave your shelf and study queue.")
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("dataReset"))) { _ in
             path = NavigationPath()
             draft = nil
-            editMode = .inactive
             query = ""
             favoritesOnly = false
             languageFilter = nil
-            bookFilter = nil
             sort = .newest
         }
     }
@@ -89,9 +120,6 @@ struct QuoteWorkspace: View {
         if let languageFilter {
             items = items.filter { $0.language == languageFilter }
         }
-        if let bookFilter {
-            items = items.filter { $0.bookTitle == bookFilter }
-        }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !needle.isEmpty {
             items = items.filter { quote in
@@ -99,7 +127,6 @@ struct QuoteWorkspace: View {
                     || quote.translatedText.lowercased().contains(needle)
                     || quote.bookTitle.lowercased().contains(needle)
                     || quote.author.lowercased().contains(needle)
-                    || TargetLanguage.displayName(for: quote.language).lowercased().contains(needle)
             }
         }
         switch sort {
@@ -115,128 +142,54 @@ struct QuoteWorkspace: View {
                     TargetLanguage.displayName(for: $1.language)
                 ) == .orderedAscending
             }
+        case .due:
+            return items.sorted {
+                ($0.nextReviewAt ?? .distantFuture) < ($1.nextReviewAt ?? .distantFuture)
+            }
         }
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Quotes")
-                    .font(.system(.largeTitle, design: .serif).weight(.semibold))
-                    .foregroundColor(Color("AppPrimary"))
-                Text("Lines kept between covers")
-                    .font(.system(.subheadline, design: .serif))
-                    .foregroundColor(Color.white.opacity(0.9))
-            }
-            Spacer()
-            if !displayed.isEmpty {
-                Button(editMode.isEditing ? "Done" : "Edit") {
-                    withAnimation {
-                        editMode = editMode.isEditing ? .inactive : .active
-                    }
-                }
-                .font(.system(.body, design: .serif).weight(.semibold))
-                .foregroundColor(Color("AppAccent"))
-            }
-            Color.clear
-                .frame(width: 44, height: 44)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Desk")
+                .font(.system(.largeTitle, design: .rounded).weight(.bold))
+                .foregroundColor(Color("AppPrimary"))
+            Text("Scan a page or craft a bilingual line")
+                .font(.system(.subheadline, design: .rounded))
+                .foregroundColor(Color.white.opacity(0.9))
         }
-        .zIndex(2)
     }
 
-    @ViewBuilder
-    private var quoteList: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let daily = store.quoteOfTheDay() {
-                Button {
-                    path.append(daily.id)
-                } label: {
+    private var captureCard: some View {
+        InkPanel {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.text.viewfinder")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundColor(Color("AppPrimary"))
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Quote of the Day")
-                            .font(.system(.caption, design: .serif).weight(.semibold))
-                            .foregroundColor(Color("AppPrimary"))
-                        Text(daily.text)
-                            .font(.system(.body, design: .serif))
+                        Text("Page Capture")
+                            .font(.system(.headline, design: .rounded))
                             .foregroundColor(Color.primary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color("AppAccent").opacity(0.16))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-
-            if !store.sortedQuotes.isEmpty {
-                filterBar
-            }
-
-            if store.sortedQuotes.isEmpty {
-                VStack(spacing: 18) {
-                    EmptyQuotesPanel()
-                    AmberCTA(title: "Add Quote") {
-                        draft = .create
+                        Text("Photograph a printed page. On-device OCR drops the text into a new quote.")
+                            .font(.system(.caption, design: .rounded))
+                            .foregroundColor(Color.primary.opacity(0.7))
                     }
                 }
-                .frame(minHeight: 240)
-            } else if displayed.isEmpty {
-                EmptyQuotesPanel(
-                    title: "No Matching Quotes",
-                    detail: "Clear a filter or try another word from the line or the book."
-                )
-                .frame(minHeight: 200)
-            } else {
-                List {
-                    ForEach(displayed) { quote in
-                        Button {
-                            path.append(quote.id)
-                        } label: {
-                            QuoteLedgerRow(quote: quote)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 4))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            Button {
-                                store.toggleFavorite(quote.id)
-                            } label: {
-                                Label(quote.isFavorite ? "Unfavorite" : "Favorite", systemImage: quote.isFavorite ? "bookmark.slash" : "bookmark.fill")
-                            }
-                            .tint(Color("AppPrimary"))
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                pendingDeleteIDs = [quote.id]
-                                showDeleteConfirm = true
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                    }
-                    .onDelete { indexSet in
-                        pendingDeleteIDs = indexSet.compactMap { displayed[safe: $0]?.id }
-                        showDeleteConfirm = true
-                    }
+                AmberCTA(title: "Scan Book Page") {
+                    showCapture = true
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .scrollDismissesKeyboard(.immediately)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
     private var filterBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Search titles and lines", text: $query)
-                .font(.system(.body, design: .serif))
+            TextField("Search lines and titles", text: $query)
+                .font(.system(.body, design: .rounded))
                 .padding(10)
-                .background(Color("AppSurface").opacity(0.18))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .submitLabel(.search)
+                .background(Color.white.opacity(0.9))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -257,24 +210,59 @@ struct QuoteWorkspace: View {
 
             HStack {
                 Menu {
-                    Button("All Books") { bookFilter = nil }
-                    ForEach(store.distinctBookTitles(), id: \.self) { title in
-                        Button(title) { bookFilter = title }
-                    }
-                } label: {
-                    Text(bookFilter ?? "Book")
-                        .font(.system(.caption, design: .serif).weight(.semibold))
-                        .foregroundColor(Color("AppAccent"))
-                }
-                Spacer()
-                Menu {
                     ForEach(QuoteSort.allCases) { option in
                         Button(option.title) { sort = option }
                     }
                 } label: {
                     Text("Sort: \(sort.title)")
-                        .font(.system(.caption, design: .serif).weight(.semibold))
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
                         .foregroundColor(Color("AppAccent"))
+                }
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var quoteBlocks: some View {
+        if store.quotes.isEmpty {
+            InkPanel {
+                VStack(spacing: 16) {
+                    EmptyQuotesPanel()
+                    AmberCTA(title: "Type First Quote") { draft = .create }
+                }
+                .frame(minHeight: 220)
+            }
+        } else if displayed.isEmpty {
+            InkPanel {
+                EmptyQuotesPanel(
+                    title: "No Matches",
+                    detail: "Clear a filter or try another word."
+                )
+                .frame(minHeight: 180)
+            }
+        } else {
+            ForEach(displayed) { quote in
+                Button {
+                    path.append(quote.id)
+                } label: {
+                    InkPanel {
+                        QuoteLedgerRow(quote: quote)
+                    }
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button {
+                        store.toggleFavorite(quote.id)
+                    } label: {
+                        Label(quote.isFavorite ? "Unfavorite" : "Favorite", systemImage: "bookmark")
+                    }
+                    Button(role: .destructive) {
+                        pendingDeleteIDs = [quote.id]
+                        showDeleteConfirm = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
                 }
             }
         }
@@ -286,14 +274,14 @@ struct QuoteLedgerRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            BookmarkShape()
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
                 .fill(Color("AppPrimary"))
-                .frame(width: 12, height: 28)
+                .frame(width: 4, height: 42)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(quote.bookTitle)
-                        .font(.system(.headline, design: .serif))
+                        .font(.system(.headline, design: .rounded))
                         .foregroundColor(Color.primary)
                         .lineLimit(1)
                     if quote.isFavorite {
@@ -301,38 +289,44 @@ struct QuoteLedgerRow: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(Color("AppAccent"))
                     }
+                    if quote.isSeed {
+                        Text("SEED")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundColor(Color("AppPrimary"))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color("AppAccent").opacity(0.25))
+                            .clipShape(Capsule())
+                    }
                 }
                 if !quote.author.isEmpty || !quote.page.isEmpty {
                     Text(attribution(quote))
-                        .font(.system(.caption, design: .serif))
+                        .font(.system(.caption, design: .rounded))
                         .foregroundColor(Color.primary.opacity(0.6))
                         .lineLimit(1)
                 }
                 Text(quote.text)
-                    .font(.system(.body, design: .serif))
+                    .font(.system(.body, design: .rounded))
                     .foregroundColor(Color.primary.opacity(0.78))
                     .lineLimit(2)
                 HStack(spacing: 8) {
                     Text(TargetLanguage.displayName(for: quote.language))
-                        .font(.system(.caption, design: .serif).weight(.semibold))
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
                         .foregroundColor(Color("AppPrimary"))
-                    Text(quote.createdAt.formatted(date: .abbreviated, time: .omitted))
-                        .font(.system(.caption, design: .serif))
-                        .foregroundColor(Color.primary.opacity(0.55))
+                    if let due = quote.nextReviewAt {
+                        Text("Due \(due.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.system(.caption, design: .rounded))
+                            .foregroundColor(Color.primary.opacity(0.55))
+                    }
                 }
-                LedgerDivider()
             }
         }
     }
 
     private func attribution(_ quote: Quote) -> String {
         var parts: [String] = []
-        if !quote.author.isEmpty {
-            parts.append(quote.author)
-        }
-        if !quote.page.isEmpty {
-            parts.append("p. \(quote.page)")
-        }
+        if !quote.author.isEmpty { parts.append(quote.author) }
+        if !quote.page.isEmpty { parts.append("p. \(quote.page)") }
         return parts.joined(separator: " · ")
     }
 }
@@ -344,20 +338,19 @@ struct QuoteDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteConfirm = false
     @State private var copiedMessage = ""
+    @State private var showShare = false
 
     var body: some View {
         Group {
             if let quote = store.quote(id: quoteID) {
                 detail(quote)
             } else {
-                EmptyQuotesPanel(title: "Quote Unavailable", detail: "This entry is no longer in your collection.")
+                EmptyQuotesPanel(title: "Quote Unavailable", detail: "This entry is no longer on your desk.")
                     .padding(16)
             }
         }
         .libraryBackdrop()
-        .onAppear {
-            store.markViewed(quoteID)
-        }
+        .onAppear { store.markViewed(quoteID) }
         .alert("Delete Quote?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 store.delete(ids: [quoteID])
@@ -365,91 +358,84 @@ struct QuoteDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This quote will be removed from your collection and history.")
+            Text("This quote will leave your shelf and study queue.")
+        }
+        .sheet(isPresented: $showShare) {
+            if let quote = store.quote(id: quoteID) {
+                ShareQuoteCard(quote: quote)
+            }
         }
     }
 
     private func detail(_ quote: Quote) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Button {
-                    dismiss()
-                } label: {
+                Button { dismiss() } label: {
                     Label("Back", systemImage: "chevron.left")
-                        .font(.system(.body, design: .serif).weight(.semibold))
+                        .font(.system(.body, design: .rounded).weight(.semibold))
                         .foregroundColor(Color("AppAccent"))
                 }
                 Spacer()
-                Button {
-                    store.toggleFavorite(quoteID)
-                } label: {
+                Button { store.toggleFavorite(quoteID) } label: {
                     Image(systemName: (store.quote(id: quoteID)?.isFavorite == true) ? "bookmark.fill" : "bookmark")
-                        .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(Color("AppAccent"))
                 }
-                .accessibilityLabel("Favorite")
-                Button("Edit") {
-                    onEdit()
-                }
-                .font(.system(.body, design: .serif).weight(.semibold))
-                .foregroundColor(Color("AppAccent"))
+                Button("Edit", action: onEdit)
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                    .foregroundColor(Color("AppAccent"))
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
 
             Text(quote.bookTitle)
-                .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                .font(.system(.largeTitle, design: .rounded).weight(.bold))
                 .foregroundColor(Color("AppPrimary"))
-                .padding(.horizontal, 16)
-            if !quote.author.isEmpty || !quote.page.isEmpty {
-                Text(detailAttribution(quote))
-                    .font(.system(.subheadline, design: .serif))
-                    .foregroundColor(Color.white.opacity(0.88))
-                    .padding(.horizontal, 16)
-            }
-
-            LibraryBanner(imageName: "BannerPen")
                 .padding(.horizontal, 16)
 
             ScrollView {
-                ParchmentStage {
+                InkPanel {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Original")
-                            .font(.system(.caption, design: .serif).weight(.semibold))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
                             .foregroundColor(Color("AppPrimary"))
                         Text(quote.text)
-                            .font(.system(.title3, design: .serif))
+                            .font(.system(.title3, design: .rounded))
                             .foregroundColor(Color.primary)
                         LedgerDivider()
                         Text("Translation")
-                            .font(.system(.caption, design: .serif).weight(.semibold))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
                             .foregroundColor(Color("AppPrimary"))
                         Text(quote.translatedText)
-                            .font(.system(.title3, design: .serif))
+                            .font(.system(.title3, design: .rounded))
                             .foregroundColor(Color.primary)
+                        if !quote.notes.isEmpty {
+                            LedgerDivider()
+                            Text("Notes")
+                                .font(.system(.caption, design: .rounded).weight(.bold))
+                                .foregroundColor(Color("AppPrimary"))
+                            Text(quote.notes)
+                                .font(.system(.body, design: .rounded))
+                                .foregroundColor(Color.primary.opacity(0.8))
+                        }
                         HStack(spacing: 8) {
                             copyButton("Original") { copy(quote.text, label: "Copied original.") }
                             copyButton("Translation") { copy(quote.translatedText, label: "Copied translation.") }
-                            copyButton("Both") {
-                                copy("\(quote.text)\n\n\(quote.translatedText)", label: "Copied both.")
-                            }
+                            Button("Share Card") { showShare = true }
+                                .font(.system(.caption, design: .rounded).weight(.semibold))
+                                .foregroundColor(Color("AppPrimary"))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color("AppPrimary").opacity(0.45), lineWidth: 0.8)
+                                )
                         }
                         FieldHint(text: copiedMessage, isError: false)
-                        LedgerDivider()
-                        HStack {
-                            Text(TargetLanguage.displayName(for: quote.language))
-                                .font(.system(.subheadline, design: .serif).weight(.semibold))
-                                .foregroundColor(Color("AppPrimary"))
-                            Spacer()
-                            Text(quote.createdAt.formatted(date: .long, time: .shortened))
-                                .font(.system(.caption, design: .serif))
-                                .foregroundColor(Color.primary.opacity(0.6))
-                        }
                         Button(role: .destructive) {
                             showDeleteConfirm = true
                         } label: {
                             Text("Delete Quote")
-                                .font(.system(.headline, design: .serif))
+                                .font(.system(.headline, design: .rounded))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
                         }
@@ -458,30 +444,20 @@ struct QuoteDetailView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
             }
+            .clearScrollBackground()
         }
         .toolbar(.hidden, for: .navigationBar)
-    }
-
-    private func detailAttribution(_ quote: Quote) -> String {
-        var parts: [String] = []
-        if !quote.author.isEmpty {
-            parts.append(quote.author)
-        }
-        if !quote.page.isEmpty {
-            parts.append("p. \(quote.page)")
-        }
-        return parts.joined(separator: " · ")
     }
 
     private func copyButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(.caption, design: .serif).weight(.semibold))
+                .font(.system(.caption, design: .rounded).weight(.semibold))
                 .foregroundColor(Color("AppPrimary"))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(Color("AppPrimary").opacity(0.45), lineWidth: 0.8)
                 )
         }
@@ -494,6 +470,54 @@ struct QuoteDetailView: View {
     }
 }
 
+struct ShareQuoteCard: View {
+    let quote: Quote
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Button("Close") { dismiss() }
+                    .foregroundColor(Color("AppAccent"))
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+
+            InkPanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(quote.bookTitle)
+                        .font(.system(.caption, design: .rounded).weight(.bold))
+                        .foregroundColor(Color("AppPrimary"))
+                    Text(quote.text)
+                        .font(.system(.title3, design: .rounded).weight(.semibold))
+                    Text(quote.translatedText)
+                        .font(.system(.body, design: .rounded))
+                        .foregroundColor(Color.primary.opacity(0.75))
+                    if !quote.author.isEmpty {
+                        Text("— \(quote.author)")
+                            .font(.system(.caption, design: .rounded))
+                            .foregroundColor(Color.primary.opacity(0.6))
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+
+            ShareLink(item: "\(quote.text)\n\n\(quote.translatedText)\n— \(quote.author.isEmpty ? quote.bookTitle : quote.author)") {
+                Text("Share Text")
+                    .font(.system(.headline, design: .rounded).weight(.semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Capsule().fill(Color("AppPrimary")))
+            }
+            .padding(.horizontal, 16)
+            Spacer()
+        }
+        .libraryBackdrop()
+    }
+}
+
 struct QuoteEditorView: View {
     let draft: QuoteDraft
     @EnvironmentObject private var store: Store
@@ -502,6 +526,7 @@ struct QuoteEditorView: View {
     @State private var bookTitle = ""
     @State private var author = ""
     @State private var page = ""
+    @State private var notes = ""
     @State private var text = ""
     @State private var translatedDraft = ""
     @State private var languageCode = TargetLanguage.spanish.rawValue
@@ -513,17 +538,18 @@ struct QuoteEditorView: View {
     @State private var existingID: UUID?
     @State private var createdAt = Date()
     @State private var isFavorite = false
+    @State private var lockedBookID: UUID?
 
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Button("Close") { dismiss() }
-                        .font(.system(.body, design: .serif).weight(.semibold))
+                        .font(.system(.body, design: .rounded).weight(.semibold))
                         .foregroundColor(Color("AppAccent"))
                     Spacer()
                     Text(existingID == nil ? "New Quote" : "Edit Quote")
-                        .font(.system(.headline, design: .serif))
+                        .font(.system(.headline, design: .rounded))
                         .foregroundColor(Color("AppPrimary"))
                     Spacer()
                     Color.clear.frame(width: 48, height: 1)
@@ -531,60 +557,63 @@ struct QuoteEditorView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
 
-                LibraryBanner(imageName: "BannerPen")
-                    .padding(.horizontal, 16)
-
                 ScrollView {
-                    ParchmentStage {
+                    InkPanel {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Book Title")
-                                .font(.system(.caption, design: .serif).weight(.semibold))
+                                .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundColor(Color("AppPrimary"))
                             EditorField(placeholder: "Title of the book", text: $bookTitle)
+                                .disabled(lockedBookID != nil)
                             FieldHint(text: showTitleError ? "Add a book title." : "")
 
                             Text("Author")
-                                .font(.system(.caption, design: .serif).weight(.semibold))
+                                .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundColor(Color("AppPrimary"))
                             EditorField(placeholder: "Optional", text: $author)
 
                             Text("Page")
-                                .font(.system(.caption, design: .serif).weight(.semibold))
+                                .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundColor(Color("AppPrimary"))
                             EditorField(placeholder: "Optional", text: $page)
 
                             Text("Original Quote")
-                                .font(.system(.caption, design: .serif).weight(.semibold))
+                                .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundColor(Color("AppPrimary"))
                             TextEditor(text: $text)
-                                .font(.system(.body, design: .serif))
+                                .font(.system(.body, design: .rounded))
                                 .frame(minHeight: 120)
                                 .scrollContentBackground(.hidden)
                                 .padding(6)
                                 .background(Color("AppSurface").opacity(0.18))
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             FieldHint(text: showTextError ? "Enter the original quote." : "")
 
                             Text("Language")
-                                .font(.system(.caption, design: .serif).weight(.semibold))
+                                .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundColor(Color("AppPrimary"))
                             LanguageChipRow(languages: editorLanguages, selectedCode: $languageCode)
                             FieldHint(text: showLanguageError ? "Choose a language." : "")
 
                             Text("Translation")
-                                .font(.system(.caption, design: .serif).weight(.semibold))
+                                .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundColor(Color("AppPrimary"))
                             TextEditor(text: $translatedDraft)
-                                .font(.system(.body, design: .serif))
+                                .font(.system(.body, design: .rounded))
                                 .frame(minHeight: 120)
                                 .scrollContentBackground(.hidden)
                                 .padding(6)
                                 .background(Color("AppSurface").opacity(0.18))
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             FieldHint(
                                 text: showTranslationError ? "Enter the translation." : "Write the line in the chosen language.",
                                 isError: showTranslationError
                             )
+
+                            Text("Reader Notes")
+                                .font(.system(.caption, design: .rounded).weight(.bold))
+                                .foregroundColor(Color("AppPrimary"))
+                            EditorField(placeholder: "Optional context", text: $notes)
 
                             AmberCTA(title: "Fill from Dictionary", isEnabled: !trimmedText.isEmpty) {
                                 runTranslation()
@@ -602,14 +631,13 @@ struct QuoteEditorView: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 28)
                 }
+                .clearScrollBackground()
                 .scrollDismissesKeyboard(.immediately)
             }
             .libraryBackdrop()
             .toolbar(.hidden, for: .navigationBar)
         }
-        .onAppear {
-            hydrate()
-        }
+        .onAppear { hydrate() }
     }
 
     private var editorLanguages: [TargetLanguage] {
@@ -642,20 +670,20 @@ struct QuoteEditorView: View {
     private func coverageBlock(_ outcome: TranslationOutcome) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Dictionary coverage \(outcome.coveragePercent)%")
-                .font(.system(.caption, design: .serif).weight(.semibold))
+                .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundColor(Color("AppPrimary"))
             if outcome.coverage > 0 {
-                Text("A draft was placed in the translation field. Edit it before saving if the desk missed the line.")
-                    .font(.system(.caption, design: .serif))
+                Text("A draft was placed in the translation field. Edit before saving.")
+                    .font(.system(.caption, design: .rounded))
                     .foregroundColor(Color.primary.opacity(0.65))
             } else {
-                Text("The desk dictionary could not render this line. Write the translation in the field above, then save.")
-                    .font(.system(.caption, design: .serif))
+                Text("Write the translation manually, then save.")
+                    .font(.system(.caption, design: .rounded))
                     .foregroundColor(Color.primary.opacity(0.65))
             }
             if !outcome.unknownWords.isEmpty {
                 Text("Unknown words: \(outcome.unknownWords.joined(separator: ", "))")
-                    .font(.system(.caption, design: .serif).weight(.semibold))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
                     .foregroundColor(Color("AppPrimary"))
             }
         }
@@ -672,7 +700,7 @@ struct QuoteEditorView: View {
             translatedDraft = result.translatedText
             showTranslationError = false
         }
-        store.recordUnknownWords(result.unknownWords, language: languageCode)
+        store.recordUnknownWords(result.unknownWords, language: languageCode, exampleQuoteID: existingID)
     }
 
     private func save() {
@@ -687,10 +715,13 @@ struct QuoteEditorView: View {
             translatedText: trimmedTranslation,
             language: languageCode,
             bookTitle: trimmedTitle,
+            bookID: lockedBookID,
             createdAt: createdAt,
             author: author.trimmingCharacters(in: .whitespacesAndNewlines),
             page: page.trimmingCharacters(in: .whitespacesAndNewlines),
-            isFavorite: isFavorite
+            isFavorite: isFavorite,
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            nextReviewAt: Date()
         )
         store.upsert(quote)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -707,19 +738,29 @@ struct QuoteEditorView: View {
             existingID = nil
             createdAt = Date()
             isFavorite = false
+        case .createForBook(let bookID):
+            existingID = nil
+            lockedBookID = bookID
+            if let book = store.book(id: bookID) {
+                bookTitle = book.title
+                author = book.author
+            }
+        case .createFromScan(let scanned):
+            existingID = nil
+            text = scanned
         case .edit(let quoteID):
             guard let quote = store.quote(id: quoteID) else { return }
             existingID = quote.id
             bookTitle = quote.bookTitle
             author = quote.author
             page = quote.page
+            notes = quote.notes
             text = quote.text
             translatedDraft = quote.translatedText
             languageCode = quote.language
             createdAt = quote.createdAt
             isFavorite = quote.isFavorite
+            lockedBookID = quote.bookID
         }
     }
 }
-
-

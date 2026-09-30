@@ -42,7 +42,7 @@ enum ReminderScheduler {
     private static func schedule() {
         let content = UNMutableNotificationContent()
         content.title = "Quiescent Pages"
-        content.body = "Save a line from today's reading."
+        content.body = "Capture a page or review a due card on your reading desk."
         content.sound = .default
 
         var components = DateComponents()
